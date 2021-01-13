@@ -4,6 +4,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <vector>
+#include <optional>
 
 #include <cstring>
 #include <cstdlib>
@@ -22,6 +23,47 @@ const std::vector<const char*> validationLayers =
 #else
 	const bool enableValidationLayers = true;
 #endif
+
+struct queue_family_indices
+{
+	std::optional<uint32_t> graphics_family;
+
+	bool is_complete()
+	{
+		return graphics_family.has_value();
+	}
+};
+
+struct queue_family_indices find_queue_families(VkPhysicalDevice device)
+{
+	uint32_t queue_family_count = 0;
+	struct queue_family_indices indices;
+
+	vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, nullptr);
+
+	std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
+	vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, queue_families.data());
+
+	int i = 0;
+	for (const auto& queueFamily : queue_families) {
+		if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+			indices.graphics_family = i;
+		}
+
+		if (indices.is_complete()) break;
+
+		i++;
+	}
+
+	return indices;
+}
+
+bool device_is_suitable(VkPhysicalDevice device)
+{
+	struct queue_family_indices indices = find_queue_families(device);
+
+	return indices.is_complete();
+}
 
 /* Query the instance layer properties for validation layer support */
 bool checkValidationLayerSupport()
@@ -114,6 +156,11 @@ void DestroyDebugUtilsMessengerEXT(
 	}
 }
 
+/*
+ * If I want to query physical devices for specific features,
+ * those checks would go here.
+ */
+
 class HelloTriangleApplication
 {
 public:
@@ -135,13 +182,14 @@ private:
 		glfwInit(); // Init GLFW
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // Tell GLFW to not initialize an opengl context
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);   // Tell GLFW to not automatically resize the window
-		window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+		this->window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
 	}
 
 	void initVulkan()
 	{
 		createInstance(); // Internal function to handle vulkan bookend
 		setupDebugMessenger();
+		pickPhysicalDevice();
 	}
 
 	void createInstance()
@@ -186,7 +234,7 @@ private:
 		}
 
 		/* Finally the vulkan instance creation */
-		VkResult result = vkCreateInstance(&createInfo, nullptr, &instance);
+		VkResult result = vkCreateInstance(&createInfo, nullptr, &this->instance);
 		if(result != VK_SUCCESS)
 		{
 			throw std::runtime_error("failed to create vk instance!");
@@ -203,7 +251,7 @@ private:
 
 		populateDebugMessengerCreateInfo(createInfo);
 
-		if (CreateDebugUtilsMessengerEXT(instance, &createInfo, nullptr, &debugMessenger) != VK_SUCCESS)
+		if (CreateDebugUtilsMessengerEXT(this->instance, &createInfo, nullptr, &debugMessenger) != VK_SUCCESS)
 		{
 			throw std::runtime_error("failed to setup debug messenger!");
 		}
@@ -228,10 +276,38 @@ private:
 
 	}
 
+	void pickPhysicalDevice()
+	{
+		uint32_t deviceCount = 0;
+		VkPhysicalDevice physicalDevice = VK_NULL_HANDLE; // Should this be an object member? probably.
+
+		vkEnumeratePhysicalDevices(this->instance, &deviceCount, nullptr);
+		if(deviceCount == 0 )
+		{
+			throw std::runtime_error("failed to find GPUs with vulkan support");
+		}
+		std::vector<VkPhysicalDevice> devices(deviceCount);
+		vkEnumeratePhysicalDevices(this->instance, &deviceCount, devices.data());
+		
+		for (const auto& device : devices)
+		{
+			if(device_is_suitable(device))
+			{
+				physicalDevice = device;
+				break;
+			}
+		}
+
+		if (physicalDevice == VK_NULL_HANDLE)
+		{
+			throw std::runtime_error("failed to find a suitable GPU!");
+		}
+	}
+
 	void mainLoop()
 	{
 		/* Simple event loop */
-		while(!glfwWindowShouldClose(window))
+		while(!glfwWindowShouldClose(this->window))
 		{
 			glfwPollEvents();
 		}
@@ -241,12 +317,12 @@ private:
 	{
 		if(enableValidationLayers)
 		{
-			DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+			DestroyDebugUtilsMessengerEXT(this->instance, this->debugMessenger, nullptr);
 		}
 
-		vkDestroyInstance(instance, nullptr);
+		vkDestroyInstance(this->instance, nullptr);
 
-		glfwDestroyWindow(window);
+		glfwDestroyWindow(this->window);
 
 		glfwTerminate();
 	}
