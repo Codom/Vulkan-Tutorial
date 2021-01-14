@@ -136,11 +136,12 @@ private:
 		// device validation layers, however we do it anyway for backwards
 		// compatability
 		device_create_info.enabledExtensionCount = 0;
-		if (enable_validation_layers)
-		{
-			device_create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers.size());
-			device_create_info.ppEnabledExtensionNames = validation_layers.data();
-		}
+		// FIXME?
+		// if (enable_validation_layers)
+		// {
+		// 	device_create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers.size());
+		// 	device_create_info.ppEnabledExtensionNames = validation_layers.data();
+		// }
 
 		if(vkCreateDevice(physical_device, &device_create_info, nullptr, &device) !=VK_SUCCESS)
 		{
