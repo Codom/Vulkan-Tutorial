@@ -24,30 +24,23 @@ struct queue_family_indices_t
 	bool is_complete();
 };
 
-queue_family_indices_t find_queue_families(VkPhysicalDevice device);
+struct Vk_Wrapper
+{
+public:
+	void init();
+	void cleanup();
+private:
+	VkQueue graphics_queue;
+	VkDevice device;
+	VkPhysicalDevice physical_device;
+	VkInstance instance;
+	VkDebugUtilsMessengerEXT debugMessenger;
 
-std::vector<const char*> get_required_extensions();
 
-VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
-		VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-		VkDebugUtilsMessageTypeFlagsEXT messageType,
-		const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-		void* pUserData);
-
-bool device_is_suitable(VkPhysicalDevice device);
-
-/* Follows vulkan style b/c it's part of
- * vulkan api */
-VkResult CreateDebugUtilsMessengerEXT(
-		VkInstance instance,
-		const VkDebugUtilsMessengerCreateInfoEXT* pcreateInfo,
-		const VkAllocationCallbacks* pAllocator,
-		VkDebugUtilsMessengerEXT* pDebugMessenger);
-
-void DestroyDebugUtilsMessengerEXT(
-		VkInstance instance,
-		VkDebugUtilsMessengerEXT DebugMessenger,
-		const VkAllocationCallbacks* pAllocator);
-
-bool check_validation_layer_support(const std::vector<const char*> validation_layers);
+	void create_instance();
+	void setup_debug_messenger();
+	void create_logical_device();
+	void populate_dbg_msgr_create_info(VkDebugUtilsMessengerCreateInfoEXT& create_info);
+	void pick_physical_device();
+};
 #endif /* !VULKAN_BOILERPLATE_H */
