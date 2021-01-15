@@ -1,8 +1,4 @@
 #include "vulkan_boilerplate.h"
-
-const uint32_t WIDTH = 1280;
-const uint32_t HEIGHT = 720;
-
 /*
  * Should only manage window event loop and
  * handle top level bookends. For coherency this should never
@@ -10,16 +6,14 @@ const uint32_t HEIGHT = 720;
  */
 struct Hello_Triangle_App
 {
-	Vk_Wrapper instance;
+	Vk_Wrapper vulkan;
 	GLFWwindow* window;
-
 	void run()
 	{
-		this->init_window();
-		this->instance.init();
+		this->vulkan.init();
+		this->window = this->vulkan.window;
 		this->mainLoop();
-		this->instance.cleanup();
-		this->cleanup();
+		this->vulkan.cleanup();
 	}
 
 	void mainLoop()
@@ -29,20 +23,6 @@ struct Hello_Triangle_App
 		{
 			glfwPollEvents();
 		}
-	}
-
-	void init_window()
-	{
-		glfwInit(); // Init GLFW
-		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // Tell GLFW to not initialize an opengl context
-		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);   // Tell GLFW to not automatically resize the window
-		this->window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
-	}
-
-	void cleanup()
-	{
-		glfwDestroyWindow(this->window);
-		glfwTerminate();
 	}
 
 };

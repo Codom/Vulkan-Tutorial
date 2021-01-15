@@ -14,10 +14,10 @@ const std::vector<const char*> validation_layers =
 
 bool queue_family_indices_t::is_complete()
 {
-	return graphics_family.has_value();
+	return graphics_family.has_value() && present_family.has_value()
 }
 
-queue_family_indices_t find_queue_families(VkPhysicalDevice device)
+queue_family_indices_t find_queue_families(VkPhysicalDevice device, VkSurfaceKHR surface)
 {
 	uint32_t queue_family_count = 0;
 	queue_family_indices_t indices;
@@ -29,6 +29,12 @@ queue_family_indices_t find_queue_families(VkPhysicalDevice device)
 
 	int i = 0;
 	for (const auto& queueFamily : queue_families) {
+		VkBool32 present_support = false;
+		vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &present_support);
+		if (present_support)
+		{
+			indices.present_family = i;
+		}
 		if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
 			indices.graphics_family = i;
 		}
@@ -37,14 +43,11 @@ queue_family_indices_t find_queue_families(VkPhysicalDevice device)
 
 		i++;
 	}
-
-	return indices;
 }
 
-bool device_is_suitable(VkPhysicalDevice device)
-{
-	queue_family_indices_t indices = find_queue_families(device);
 
+bool Vk_Wrapper::device_is_suitable(VkPhysicalDevice device)
+{
 	return indices.is_complete();
 }
 
@@ -141,23 +144,46 @@ void DestroyDebugUtilsMessengerEXT(
 
 void Vk_Wrapper::init()
 {
+	this->init_window();
 	this->create_instance(); // Internal function to handle vulkan bookend
 	this->setup_debug_messenger();
+	this->surface_init();
 	this->pick_physical_device();
 	this->create_logical_device();
+}
+
+void Vk_Wrapper::surface_init()
+{
+	if (glfwCreateWindowSurface(
+		this->instance,
+		this->window,
+		nullptr,
+		&this->surface
+		) != VK_SUCCESS)
+	{
+		throw std::runtime_error("Unable to make surface");
+	}
+}
+
+void Vk_Wrapper::init_window()
+{
+	glfwInit(); // Init GLFW
+	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // Tell GLFW to not initialize an opengl context
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);   // Tell GLFW to not automatically resize the window
+	this->window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
 }
 
 void Vk_Wrapper::cleanup()
 {
 	vkDestroyDevice(this->device, nullptr);
-
 	if(enable_validation_layers)
 	{
 		DestroyDebugUtilsMessengerEXT(this->instance, this->debugMessenger, nullptr);
 	}
-
+	vkDestroySurfaceKHR(this->instance, this->surface, nullptr);
+	glfwDestroyWindow(this->window);
 	vkDestroyInstance(this->instance, nullptr);
-
+	glfwTerminate();
 }
 
 void Vk_Wrapper::create_instance()
@@ -228,14 +254,24 @@ void Vk_Wrapper::setup_debug_messenger()
 
 void Vk_Wrapper::create_logical_device()
 {
-	queue_family_indices_t indices = find_queue_families(physical_device);
+	this->indices = find_queue_families(physical_device, this->surface);
 
-	VkDeviceQueueCreateInfo queue_create_info{};
-	queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-	queue_create_info.queueFamilyIndex = indices.graphics_family.value();
-	queue_create_info.queueCount = 1;
-	// float queue_priority = 1.0f;
-	// queue_create_info.pQueuePriorities = &queue_priority;
+	std::set<uint32_t> unique_queue_families = {
+		this->indices.graphics_family.value(),
+		this->indices.present_family.value()
+	};
+
+	std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
+	float queue_priority = 1.0f;
+	for (uint32_t queue_family_index : unique_queue_families)
+	{
+		VkDeviceQueueCreateInfo queue_create_info;
+		queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+		queue_create_info.queueFamilyIndex = queue_family_index;
+		queue_create_info.queueCount = 1;
+		queue_create_info.pQueuePriorities = &queue_priority;
+		queue_create_infos.push_back(queue_create_info);
+	}
 
 	// Device feature struct, linked in the device_create_info struct below
 	// For now we just want to instance the lib so no feature requests
@@ -243,15 +279,15 @@ void Vk_Wrapper::create_logical_device()
 
 	VkDeviceCreateInfo device_create_info{};
 	device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-	device_create_info.pQueueCreateInfos = &queue_create_info;
-	device_create_info.queueCreateInfoCount = 1;
+	device_create_info.pQueueCreateInfos = queue_create_infos.data();
+	device_create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());
 	device_create_info.pEnabledFeatures = &device_features;
 	// no need to load validation layers in the physical device
 	// implementations will not differentiate between instance or
-	// device validation layers, however we do it anyway for backwards
-	// compatability
+	// device validation layers
 	device_create_info.enabledExtensionCount = 0;
-	// FIXME?
+
+	// Potential issue: Use validation layers anyway for backwards compatability
 	// if (enable_validation_layers)
 	// {
 	// 	device_create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers.size());
@@ -262,6 +298,8 @@ void Vk_Wrapper::create_logical_device()
 	{
 		throw std::runtime_error("failed to create logical device");
 	}
+
+	vkGetDeviceQueue(this->device, this->indices.present_family.value(), 0, &this->present_queue);
 }
 
 void Vk_Wrapper::populate_dbg_msgr_create_info(VkDebugUtilsMessengerCreateInfoEXT& create_info)
@@ -297,7 +335,7 @@ void Vk_Wrapper::pick_physical_device()
 	
 	for (const auto& device : devices)
 	{
-		if(device_is_suitable(device))
+		if(this->device_is_suitable(device))
 		{
 			this->physical_device = device;
 			break;
