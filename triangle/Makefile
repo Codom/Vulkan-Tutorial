@@ -2,7 +2,7 @@
 CC := g++
 CCFLAGS := -std=c++17 -O2 -Wall
 LDFLAGS := -lglfw -lvulkan -ldl -lpthread -lX11 -lXxf86vm -lXrandr -lXi
-DBGFLAGS := -g
+DBGFLAGS := -g -DDEBUG
 CCOBJFLAGS := $(CCFLAGS) -c
 
 # path macros

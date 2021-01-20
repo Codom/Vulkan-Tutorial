@@ -15,10 +15,10 @@
 const uint32_t WIDTH = 1280;
 const uint32_t HEIGHT = 720;
 
-#ifdef NDEBUG
-  const bool enable_validation_layers = false;
-#else
+#ifdef DEBUG
 	const bool enable_validation_layers = true;
+#else
+  const bool enable_validation_layers = false;
 #endif
 
 struct queue_family_indices_t

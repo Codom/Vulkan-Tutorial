@@ -3,7 +3,15 @@
  * Copyright (C) 2021 codom <codom@sol>
  *
  * Distributed under terms of the MIT license.
+ *
+ * Implements an object around the vulkan instance
+ * in order to facillitate faster bare vulkan project
+ * initialization.
+ *
+ * TODO: Setup swap chain
+ * TODO: Setup image view
  */
+
 #include "vulkan_boilerplate.h"
 
 /* Globals to enable vulkan's valication layer */
@@ -14,7 +22,7 @@ const std::vector<const char*> validation_layers =
 
 bool queue_family_indices_t::is_complete()
 {
-	return graphics_family.has_value() && present_family.has_value()
+	return graphics_family.has_value() && present_family.has_value();
 }
 
 queue_family_indices_t find_queue_families(VkPhysicalDevice device, VkSurfaceKHR surface)
@@ -43,16 +51,17 @@ queue_family_indices_t find_queue_families(VkPhysicalDevice device, VkSurfaceKHR
 
 		i++;
 	}
+	return indices;
 }
-
 
 bool Vk_Wrapper::device_is_suitable(VkPhysicalDevice device)
 {
-	return indices.is_complete();
+	auto m_indices = find_queue_families(device, this->surface);
+	return m_indices.is_complete();
 }
 
 /* Query the instance layer properties for validation layer support */
-bool check_validation_layer_support(const std::vector<const char*> validation_layers)
+bool check_validation_layer_support(const std::vector<const char*>& validation_layers)
 {
 	bool layerFound = false;
 	uint32_t layerCount;
@@ -90,6 +99,7 @@ std::vector<const char*> get_required_extensions()
 	if (enable_validation_layers)
 	{
 		extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+		extensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
 	}
 
 	return extensions;
@@ -98,7 +108,7 @@ std::vector<const char*> get_required_extensions()
 /* generic debug callback function that
  * hooks into the validation layers
  */
-VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
+static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
 		VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
 		VkDebugUtilsMessageTypeFlagsEXT messageType,
 		const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
@@ -201,7 +211,7 @@ void Vk_Wrapper::create_instance()
 	appInfo.applicationVersion = VK_MAKE_VERSION(1,0,0); // Probably best to use build system defines here, but I'm not using a BS
 	appInfo.pEngineName = "No Engine";
 	appInfo.engineVersion = VK_MAKE_VERSION(1,0,0); // Ditto from above
-	appInfo.apiVersion = VK_API_VERSION_1_0; // Why version 1?
+	appInfo.apiVersion = VK_API_VERSION_1_2; // Why version 1?
 
 	/* This second struct defines global extension info */
 	VkInstanceCreateInfo create_info{};
@@ -223,7 +233,6 @@ void Vk_Wrapper::create_instance()
 		create_info.pNext = (VkDebugUtilsMessengerCreateInfoEXT*) &debug_create_info;
 	} else {
 		create_info.enabledLayerCount = 0;
-
 		create_info.pNext = nullptr;
 	}
 
@@ -245,7 +254,7 @@ void Vk_Wrapper::setup_debug_messenger()
 
 	populate_dbg_msgr_create_info(create_info);
 
-	if (CreateDebugUtilsMessengerEXT(this->instance, &create_info, nullptr, &debugMessenger) != VK_SUCCESS)
+	if (CreateDebugUtilsMessengerEXT(this->instance, &create_info, nullptr, &this->debugMessenger) != VK_SUCCESS)
 	{
 		throw std::runtime_error("failed to setup debug messenger!");
 	}
@@ -254,18 +263,18 @@ void Vk_Wrapper::setup_debug_messenger()
 
 void Vk_Wrapper::create_logical_device()
 {
-	this->indices = find_queue_families(physical_device, this->surface);
+	queue_family_indices_t indices = find_queue_families(physical_device, this->surface);
 
 	std::set<uint32_t> unique_queue_families = {
-		this->indices.graphics_family.value(),
-		this->indices.present_family.value()
+		indices.graphics_family.value(),
+		indices.present_family.value()
 	};
-
 	std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
+
 	float queue_priority = 1.0f;
 	for (uint32_t queue_family_index : unique_queue_families)
 	{
-		VkDeviceQueueCreateInfo queue_create_info;
+		VkDeviceQueueCreateInfo queue_create_info{};
 		queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
 		queue_create_info.queueFamilyIndex = queue_family_index;
 		queue_create_info.queueCount = 1;
@@ -279,8 +288,8 @@ void Vk_Wrapper::create_logical_device()
 
 	VkDeviceCreateInfo device_create_info{};
 	device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-	device_create_info.pQueueCreateInfos = queue_create_infos.data();
 	device_create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());
+	device_create_info.pQueueCreateInfos = queue_create_infos.data();
 	device_create_info.pEnabledFeatures = &device_features;
 	// no need to load validation layers in the physical device
 	// implementations will not differentiate between instance or
@@ -288,18 +297,21 @@ void Vk_Wrapper::create_logical_device()
 	device_create_info.enabledExtensionCount = 0;
 
 	// Potential issue: Use validation layers anyway for backwards compatability
-	// if (enable_validation_layers)
-	// {
-	// 	device_create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers.size());
-	// 	device_create_info.ppEnabledExtensionNames = validation_layers.data();
-	// }
+	if (enable_validation_layers)
+	{
+		device_create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers.size());
+		device_create_info.ppEnabledLayerNames = validation_layers.data();
+	} else {
+		device_create_info.enabledLayerCount = 0;
+	}
 
-	if(vkCreateDevice(physical_device, &device_create_info, nullptr, &device) !=VK_SUCCESS)
+	if(vkCreateDevice(this->physical_device, &device_create_info, nullptr, &this->device) !=VK_SUCCESS)
 	{
 		throw std::runtime_error("failed to create logical device");
 	}
 
-	vkGetDeviceQueue(this->device, this->indices.present_family.value(), 0, &this->present_queue);
+	vkGetDeviceQueue(this->device, indices.present_family.value(), 0, &this->graphics_queue);
+	vkGetDeviceQueue(this->device, indices.present_family.value(), 0, &this->present_queue);
 }
 
 void Vk_Wrapper::populate_dbg_msgr_create_info(VkDebugUtilsMessengerCreateInfoEXT& create_info)
@@ -317,7 +329,6 @@ void Vk_Wrapper::populate_dbg_msgr_create_info(VkDebugUtilsMessengerCreateInfoEX
 		VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
 	create_info.pfnUserCallback = debug_callback;
 	create_info.pUserData = nullptr;
-
 }
 
 void Vk_Wrapper::pick_physical_device()
