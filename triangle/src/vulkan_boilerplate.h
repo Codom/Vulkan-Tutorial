@@ -29,6 +29,11 @@ struct queue_family_indices_t
 	bool is_complete();
 };
 
+struct swap_chain_support_details_t;
+
+/* Wrap all vulkan setup inside an object
+ * and selectively expose the attributes that
+ * a future game my actually need to use */
 struct Vk_Wrapper
 {
 	VkInstance instance;
@@ -44,10 +49,14 @@ private:
 	VkPhysicalDevice physical_device;
 	VkDebugUtilsMessengerEXT debugMessenger;
 	queue_family_indices_t indices;
+	VkSwapchainKHR swap_chain;
+	VkFormat sc_image_fmt;
+	VkExtent2D sc_extent;
+	std::vector<VkImage> sc_images;
 
 	/* A whole bunch of functions that ideally
 	 * should be inlined but I want separated
-	 * for readability */
+	 * for readability. */
 	void surface_init();
 	void init_window();
 	void create_instance();
@@ -55,7 +64,18 @@ private:
 	void create_logical_device();
 	void populate_dbg_msgr_create_info(VkDebugUtilsMessengerCreateInfoEXT& create_info);
 	void pick_physical_device();
+	void create_swap_chain();
 
+	/* These functions are used to query potential devices,
+	 * however they need access to surface properties so
+	 * they execute in the same object space as the above functions
+	 *
+	 * Potential_TODO: These might be worth deobjectifying
+	 * */
+	VkSurfaceFormatKHR pick_sc_surface_format(const std::vector<VkSurfaceFormatKHR>&);
+	VkPresentModeKHR pick_sc_present_format(const std::vector<VkPresentModeKHR>&);
+	swap_chain_support_details_t query_swap_chain_support(VkPhysicalDevice);
+	VkExtent2D choose_swap_extent(const VkSurfaceCapabilitiesKHR& capabilities);
 	bool device_is_suitable(VkPhysicalDevice);
 };
 #endif /* !VULKAN_BOILERPLATE_H */
