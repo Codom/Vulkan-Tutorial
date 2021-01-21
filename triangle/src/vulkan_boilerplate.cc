@@ -287,6 +287,7 @@ void Vk_Wrapper::init()
 	this->pick_physical_device();
 	this->create_logical_device();
 	this->create_swap_chain();
+	this->create_image_views();
 }
 
 void Vk_Wrapper::surface_init()
@@ -312,6 +313,10 @@ void Vk_Wrapper::init_window()
 
 void Vk_Wrapper::cleanup()
 {
+	for (auto iv : this->sc_image_views)
+	{
+		vkDestroyImageView(this->device, iv, nullptr);
+	}
 	vkDestroySwapchainKHR(this->device, this->swap_chain, nullptr);
 	vkDestroyDevice(this->device, nullptr);
 	if(enable_validation_layers)
@@ -548,4 +553,33 @@ void Vk_Wrapper::create_swap_chain()
 
 	this->sc_image_fmt = surface_fmt.format;
 	this->sc_extent = extent;
+}
+
+void Vk_Wrapper::create_image_views()
+{
+	this->sc_image_views.resize(this->sc_images.size());
+
+	for (size_t i = 0; i < this->sc_images.size(); ++i)
+	{
+		VkImageViewCreateInfo create_info{};
+		create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		create_info.image = this->sc_images[i];
+		create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		create_info.format = this->sc_image_fmt;
+		create_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+		create_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+		create_info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+		create_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+		create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		create_info.subresourceRange.baseMipLevel = 0;
+		create_info.subresourceRange.levelCount = 1;
+		create_info.subresourceRange.baseArrayLayer = 0;
+		create_info.subresourceRange.layerCount = 1;
+
+		if (vkCreateImageView(this->device, &create_info, nullptr, &this->sc_image_views[i])
+		!= VK_SUCCESS)
+		{
+			throw std::runtime_error("Failed to create image views!");
+		}
+	}
 }

@@ -52,7 +52,10 @@ private:
 	VkSwapchainKHR swap_chain;
 	VkFormat sc_image_fmt;
 	VkExtent2D sc_extent;
+	std::vector<VkImageView> sc_image_views;
 	std::vector<VkImage> sc_images;
+	/* sc_images needs to be the last member
+	 * in this struct, otherwise there will be stack issues*/
 
 	/* A whole bunch of functions that ideally
 	 * should be inlined but I want separated
@@ -65,6 +68,7 @@ private:
 	void populate_dbg_msgr_create_info(VkDebugUtilsMessengerCreateInfoEXT& create_info);
 	void pick_physical_device();
 	void create_swap_chain();
+	void create_image_views();
 
 	/* These functions are used to query potential devices,
 	 * however they need access to surface properties so
