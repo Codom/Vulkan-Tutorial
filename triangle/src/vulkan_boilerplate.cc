@@ -13,6 +13,7 @@
 
 #include "vulkan_boilerplate.h"
 #include <cstdint>
+#include <fstream>
 
 /* Implementation types */
 struct swap_chain_support_details_t
@@ -34,6 +35,23 @@ const std::vector<const char*> device_extenstions =
 };
 
 /* Helper functions */
+/* Dumps contents of file into returned buffer, useful for shaders */
+static std::vector<char> read_file(const std::string& filename)
+{
+	std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+	if (!file.is_open())
+	{
+		throw std::runtime_error("Failed to open file!");
+	}
+
+	size_t file_size = (size_t) file.tellg();
+
+	std::vector<char> buffer(file_size);
+	file.seekg(0);
+	file.read(buffer.data(), file_size);
+}
+
 queue_family_indices_t find_queue_families(VkPhysicalDevice device, VkSurfaceKHR surface)
 {
 	uint32_t queue_family_count = 0;
@@ -180,6 +198,23 @@ bool queue_family_indices_t::is_complete()
 	return graphics_family.has_value() && present_family.has_value();
 }
 
+VkShaderModule Vk_Wrapper::create_shader_module(const std::vector<char>& code)
+{
+	VkShaderModule shader_module;
+	VkShaderModuleCreateInfo create_info{};
+	create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	create_info.codeSize = code.size();
+	create_info.pCode = reinterpret_cast<const uint32_t*>(code.data());
+
+	if (vkCreateShaderModule(this->device, &create_info, nullptr, &shader_module)
+	!= VK_SUCCESS)
+	{
+		throw std::runtime_error("Failed to create shader module!");
+	}
+
+	return shader_module;
+}
+
 
 VkExtent2D Vk_Wrapper::choose_swap_extent(const VkSurfaceCapabilitiesKHR& capabilities)
 {
@@ -288,6 +323,7 @@ void Vk_Wrapper::init()
 	this->create_logical_device();
 	this->create_swap_chain();
 	this->create_image_views();
+	this->create_graphics_pipeline();
 }
 
 void Vk_Wrapper::surface_init()
@@ -313,6 +349,7 @@ void Vk_Wrapper::init_window()
 
 void Vk_Wrapper::cleanup()
 {
+	vkDestroyPipelineLayout(this->device, this->pipe_layout, nullptr);
 	for (auto iv : this->sc_image_views)
 	{
 		vkDestroyImageView(this->device, iv, nullptr);
@@ -581,5 +618,164 @@ void Vk_Wrapper::create_image_views()
 		{
 			throw std::runtime_error("Failed to create image views!");
 		}
+	}
+}
+
+// TODO(future me): modularize this.
+// Could be done through
+// late binding by providing overrideable handles
+// for each pipeline configuration step or something.
+// Can also provide far less verbose config flags through
+// object functions
+void Vk_Wrapper::create_graphics_pipeline()
+{
+	/* The first part of the pipeline are the prgrammable steps of
+	 * the rendering pipeline, which is programmed through glsl */
+
+	/* Read in shaders */
+	VkShaderModule vert_sm;
+	VkShaderModule frag_sm;
+	try {
+		auto vert_shader = read_file("shaders/vert.spv");
+		auto frag_shader = read_file("shaders/frag.spv");
+		vert_sm = this->create_shader_module(vert_shader);
+		frag_sm = this->create_shader_module(frag_shader);
+	} catch (std::exception& e) { // Intercept and handle wierd vector exceptions
+		throw std::runtime_error("Failed to create shaders: " + std::string(e.what()));
+	}
+
+	/* Structure config */
+	VkPipelineShaderStageCreateInfo vert_stageinfo{};
+	vert_stageinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	vert_stageinfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+	vert_stageinfo.module = vert_sm;
+	vert_stageinfo.pName = "main"; // NOTE: Entrypoint function name
+
+	VkPipelineShaderStageCreateInfo frag_stageinfo{};
+	frag_stageinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	frag_stageinfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	frag_stageinfo.module = frag_sm;
+	frag_stageinfo.pName = "main"; // NOTE: Entrypoint function name
+
+	/* Actual pipeline definition */
+	VkPipelineShaderStageCreateInfo shader_stages[] = {vert_stageinfo, frag_stageinfo};
+
+	/* The second part defines parameters for each of the fixed stages of the
+	 * rendering pipeline */
+
+	/* Vertex input buffers, empty for now */
+	VkPipelineVertexInputStateCreateInfo vertex_info{};
+	vertex_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	vertex_info.vertexBindingDescriptionCount = 0;
+	vertex_info.pVertexBindingDescriptions = nullptr;
+	vertex_info.vertexAttributeDescriptionCount = 0;
+	vertex_info.pVertexAttributeDescriptions = nullptr;
+
+	/* Input assembly */
+	VkPipelineInputAssemblyStateCreateInfo input_asm{};
+	input_asm.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	input_asm.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	input_asm.primitiveRestartEnable = VK_FALSE;
+
+	/* Viewport */
+	VkViewport viewport{};
+	viewport.x = 0.0f;
+	viewport.y = 0.0f;
+	viewport.width =  (float) this->sc_extent.width;
+	viewport.height = (float) this->sc_extent.height;
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+
+	/* Scissor rectangle */
+	VkRect2D scissor{};
+	scissor.offset = {0,0};
+	scissor.extent = this->sc_extent;
+
+	/* Viewport createinfo */
+	VkPipelineViewportStateCreateInfo viewport_state{};
+	viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewport_state.viewportCount = 1;
+	viewport_state.pViewports = &viewport;
+	viewport_state.scissorCount = 1;
+	viewport_state.pScissors = &scissor;
+
+	/* Rasterizer, takes vertex shader info and outputs fragment shader info */
+	VkPipelineRasterizationStateCreateInfo rasterizer{};
+	rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	rasterizer.depthClampEnable = VK_FALSE;
+	rasterizer.rasterizerDiscardEnable = VK_FALSE;
+	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+	rasterizer.lineWidth = 1.0f;
+	rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+	rasterizer.depthBiasEnable = VK_FALSE;
+	rasterizer.depthBiasConstantFactor = 0.0f;
+	rasterizer.depthBiasClamp = 0.0f;
+	rasterizer.depthBiasSlopeFactor = 0.0f;
+
+	/* Multisampling, for now disabled, need to enable a gpu feature for it */
+	VkPipelineMultisampleStateCreateInfo multisampling{};
+	multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	multisampling.sampleShadingEnable = VK_FALSE;
+	multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	multisampling.minSampleShading = 1.0f; // Optional
+	multisampling.pSampleMask = nullptr; // Optional
+	multisampling.alphaToCoverageEnable = VK_FALSE; // Optional
+	multisampling.alphaToOneEnable = VK_FALSE; // Optional
+
+	/* Depth and Stencil testing, no struct here for now */
+
+	/* Color blending, Takes fragment shader color and blends
+	 * it to the already existing color.
+	 * This implements a simpile alpha blending model for opacity
+	 * support */
+	VkPipelineColorBlendAttachmentState color_blend_att{};
+	color_blend_att.colorWriteMask = 
+		  VK_COLOR_COMPONENT_R_BIT
+		| VK_COLOR_COMPONENT_G_BIT
+		| VK_COLOR_COMPONENT_B_BIT
+		| VK_COLOR_COMPONENT_A_BIT;
+	color_blend_att.blendEnable = VK_TRUE;
+	color_blend_att.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	color_blend_att.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	color_blend_att.colorBlendOp = VK_BLEND_OP_ADD;
+	color_blend_att.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_att.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+	color_blend_att.alphaBlendOp = VK_BLEND_OP_ADD;
+
+	VkPipelineColorBlendStateCreateInfo color_blending{};
+	color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	color_blending.logicOpEnable = VK_FALSE;
+	color_blending.logicOp = VK_LOGIC_OP_COPY; // Optional
+	color_blending.attachmentCount = 1;
+	color_blending.pAttachments = &color_blend_att;
+	color_blending.blendConstants[0] = 0.0f; // Optional
+	color_blending.blendConstants[1] = 0.0f; // Optional
+	color_blending.blendConstants[2] = 0.0f; // Optional
+	color_blending.blendConstants[3] = 0.0f; // Optional
+	
+	/* Dynamic state, allows for limited mutable modification
+	 * of the otherwise immutable pipeline. */
+	VkDynamicState dynamic_states[] = {
+	    VK_DYNAMIC_STATE_VIEWPORT,
+	    VK_DYNAMIC_STATE_LINE_WIDTH
+	};
+	
+	VkPipelineDynamicStateCreateInfo dynamic_state{};
+	dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+	dynamic_state.dynamicStateCount = 2;
+	dynamic_state.pDynamicStates = dynamic_states;
+
+	/* Pipeline layout */
+	VkPipelineLayoutCreateInfo pipeline_layout_info{};
+	pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	pipeline_layout_info.setLayoutCount = 0; // Optional
+	pipeline_layout_info.pSetLayouts = nullptr; // Optional
+	pipeline_layout_info.pushConstantRangeCount = 0; // Optional
+	pipeline_layout_info.pPushConstantRanges = nullptr; // Optional
+
+	if (vkCreatePipelineLayout(this->device, &pipeline_layout_info, nullptr, &this->pipe_layout)
+			!= VK_SUCCESS) {
+		throw std::runtime_error("failed to create pipeline layout!");
 	}
 }

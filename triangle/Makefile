@@ -1,4 +1,5 @@
 # tool macros
+GLSLCC := glslc
 CC := g++
 CCFLAGS := -std=c++17 -O2 -Wall
 LDFLAGS := -lglfw -lvulkan -ldl -lpthread -lX11 -lXxf86vm -lXrandr -lXi
@@ -10,6 +11,8 @@ BIN_PATH := bin
 OBJ_PATH := obj
 SRC_PATH := src
 DBG_PATH := debug
+SPV_PATH := $(BIN_PATH)/shaders
+DSPV_PATH := $(DBG_PATH)/shaders
 
 # compile macros
 TARGET_NAME := main
@@ -24,9 +27,16 @@ SRC := $(foreach x, $(SRC_PATH), $(wildcard $(addprefix $(x)/*,.c*)))
 OBJ := $(addprefix $(OBJ_PATH)/, $(addsuffix .o, $(notdir $(basename $(SRC)))))
 OBJ_DEBUG := $(addprefix $(DBG_PATH)/, $(addsuffix .o, $(notdir $(basename $(SRC)))))
 
+# shader files
+SPV_SRC := $(foreach x, $(SRC_PATH)/shaders, $(wildcard $(addprefix $(x)/*,.glsl)))
+SPV := $(addprefix $(SPV_PATH)/, $(addsuffix .spv, $(notdir $(basename $(SPV_SRC)))))
+DSPV := $(addprefix $(DSPV_PATH)/, $(addsuffix .spv, $(notdir $(basename $(SPV_SRC)))))
+
 # clean files list
 DISTCLEAN_LIST := $(OBJ) \
-                  $(OBJ_DEBUG)
+                  $(OBJ_DEBUG) \
+									$(SPV) \
+									$(DSPV)
 CLEAN_LIST := $(TARGET) \
 			  $(TARGET_DEBUG) \
 			  $(DISTCLEAN_LIST)
@@ -35,8 +45,14 @@ CLEAN_LIST := $(TARGET) \
 default: makedir all
 
 # non-phony targets
-$(TARGET): $(OBJ)
+$(TARGET): $(OBJ) $(SPV)
 	$(CC) $(CCFLAGS) $(LDFLAGS) -o $@ $(OBJ)
+
+$(SPV_PATH)/%.spv: $(SRC_PATH)/shaders/%.glsl
+	$(GLSLCC) -o $@ $<
+
+$(DSPV_PATH)/%.spv: $(SRC_PATH)/shaders/%.glsl
+	$(GLSLCC) -o $@ $<
 
 $(OBJ_PATH)/%.o: $(SRC_PATH)/%.c*
 	$(CC) $(CCOBJFLAGS) -o $@ $<
@@ -44,13 +60,13 @@ $(OBJ_PATH)/%.o: $(SRC_PATH)/%.c*
 $(DBG_PATH)/%.o: $(SRC_PATH)/%.c*
 	$(CC) $(CCOBJFLAGS) $(DBGFLAGS) -o $@ $<
 
-$(TARGET_DEBUG): $(OBJ_DEBUG)
+$(TARGET_DEBUG): $(OBJ_DEBUG) $(DSPV)
 	$(CC) $(CCFLAGS) $(LDFLAGS) $(DBGFLAGS) $(OBJ_DEBUG) -o $@
 
 # phony rules
 .PHONY: makedir
 makedir:
-	@mkdir -p $(BIN_PATH) $(OBJ_PATH) $(DBG_PATH)
+	@mkdir -p $(BIN_PATH) $(OBJ_PATH) $(DBG_PATH) $(SPV_PATH) $(DSPV_PATH)
 
 .PHONY: all
 all: $(TARGET)

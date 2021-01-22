@@ -52,6 +52,7 @@ private:
 	VkSwapchainKHR swap_chain;
 	VkFormat sc_image_fmt;
 	VkExtent2D sc_extent;
+	VkPipelineLayout pipe_layout;
 	std::vector<VkImageView> sc_image_views;
 	std::vector<VkImage> sc_images;
 	/* sc_images needs to be the last member
@@ -69,13 +70,15 @@ private:
 	void pick_physical_device();
 	void create_swap_chain();
 	void create_image_views();
+	void create_graphics_pipeline();
 
 	/* These functions are used to query potential devices,
-	 * however they need access to surface properties so
+	 * however they need access to surface or device properties so
 	 * they execute in the same object space as the above functions
 	 *
 	 * Potential_TODO: These might be worth deobjectifying
 	 * */
+	VkShaderModule create_shader_module(const std::vector<char>& code);
 	VkSurfaceFormatKHR pick_sc_surface_format(const std::vector<VkSurfaceFormatKHR>&);
 	VkPresentModeKHR pick_sc_present_format(const std::vector<VkPresentModeKHR>&);
 	swap_chain_support_details_t query_swap_chain_support(VkPhysicalDevice);
